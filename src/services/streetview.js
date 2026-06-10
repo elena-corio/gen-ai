@@ -10,7 +10,7 @@ const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
  * @param {object} options
  * @returns {string} image URL
  */
-export function getStreetViewUrl(lat, lng, { width = 640, height = 480, fov = 90, heading = 0, pitch = 0 } = {}) {
+export function getStreetViewUrl(lat, lng, { width = 640, height = 640, fov = 90, heading = 0, pitch = 0 } = {}) {
   const params = new URLSearchParams({
     size: `${width}x${height}`,
     location: `${lat},${lng}`,
