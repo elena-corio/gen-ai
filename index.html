@@ -12,9 +12,14 @@
 <body>
   <div id="map"></div>
 
+  <!-- Bottom-left watermark -->
+  <div id="watermark">vitru<span>.</span>views</div>
+
   <!-- Top-left: search + sidebar -->
   <div id="top-left">
-    <div id="search-bar">
+    <div id="search-row">
+      <img id="logo-mark" src="/logo.svg" alt="vitru.views" />
+      <div id="search-bar">
       <button id="ai-btn" title="Toggle controls">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z"/>
@@ -23,6 +28,7 @@
       </button>
       <input id="search-input" type="text" placeholder="Search a street or city" autocomplete="off" spellcheck="false" />
     </div>
+    </div><!-- /#search-row -->
 
     <aside id="sidebar">
       <!-- App name -->

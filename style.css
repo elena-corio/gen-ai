@@ -47,8 +47,24 @@ body {
   width: 300px;
 }
 
+/* ── Search row (logo + bar) ────────────────────────────────── */
+#search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#logo-mark {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: block;
+}
+
 /* ── Search bar ─────────────────────────────────────────────── */
 #search-bar {
+  flex: 1;
   display: flex;
   align-items: center;
   background: var(--white);
@@ -61,21 +77,21 @@ body {
 
 #ai-btn {
   position: relative;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  border: none;
-  background: var(--charcoal);
-  color: var(--white);
+  border: var(--border);
+  background: transparent;
+  color: var(--grey-600);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background 0.2s;
+  transition: background 0.2s, color 0.2s;
 }
-#ai-btn.active          { background: var(--teal); }
-#ai-btn:hover:not(.active) { background: #2e3138; }
+#ai-btn.active          { color: var(--teal); background: var(--teal-light); }
+#ai-btn:hover:not(.active) { background: var(--grey-100); color: var(--charcoal); }
 
 #conn-dot {
   position: absolute;
@@ -576,6 +592,22 @@ body {
   color: var(--teal);
   background: var(--teal-light);
 }
+
+/* ── Watermark ──────────────────────────────────────────────── */
+#watermark {
+  position: fixed;
+  bottom: 28px;
+  left: 20px;
+  z-index: 1000;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--charcoal);
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+#watermark span { color: var(--teal); opacity: 1; }
 
 /* ── Toolbar wrap ───────────────────────────────────────────── */
 #toolbar-wrap {
