@@ -3,121 +3,456 @@ import 'leaflet/dist/leaflet.css'
 import { getStreetViewUrl, hasStreetViewCoverage } from './services/streetview.js'
 import { generateImage, ping } from './services/comfyui.js'
 
-// Leaflet's default marker icons break with Vite — fix asset paths
-import markerIcon from 'leaflet/dist/images/marker-icon.png'
+import markerIcon   from 'leaflet/dist/images/marker-icon.png'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
 
-// --- Map (Barcelona default) ---
-const map = L.map('map').setView([41.385, 2.176], 14)
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors',
-  maxZoom: 19,
-}).addTo(map)
+// ── Map ──────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([41.385, 2.176], 14)
+map.attributionControl.setPosition('bottomleft')
 
-// --- Elements ---
-const svPreview   = document.getElementById('sv-preview')
+const tileLayers = {
+  street:    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                { attribution: '© OpenStreetMap contributors', maxZoom: 19 }),
+  light:     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',    { attribution: '© OpenStreetMap, © CARTO', maxZoom: 19 }),
+  dark:      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',     { attribution: '© OpenStreetMap, © CARTO', maxZoom: 19 }),
+  satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri', maxZoom: 19 }),
+}
+let activeLayer = 'street'
+tileLayers.street.addTo(map)
+
+// ── Elements ─────────────────────────────────────────────────
+const aiBtn       = document.getElementById('ai-btn')
+const sidebar     = document.getElementById('sidebar')
+const searchInput = document.getElementById('search-input')
 const generateBtn = document.getElementById('generate-btn')
 const promptEl    = document.getElementById('prompt')
 const statusEl    = document.getElementById('status')
-const resultEl    = document.getElementById('result')
-const uploadInput = document.getElementById('upload-input')
-const uploadLabel = document.getElementById('upload-label')
+const intensityEl = document.getElementById('intensity')
 const connDot     = document.getElementById('conn-dot')
-const connLabel   = document.getElementById('conn-label')
-const connRetry   = document.getElementById('conn-retry')
 
-// --- State ---
-let currentSvUrl = null
-let currentFile  = null
-let marker = null
+const uploadZone     = document.getElementById('upload-zone')
+const uploadInput    = document.getElementById('upload-input')
+const uploadEmpty    = document.getElementById('upload-empty')
+const uploadLoaded   = document.getElementById('upload-loaded')
+const uploadThumb    = document.getElementById('upload-thumb')
+const uploadFilename = document.getElementById('upload-filename')
+const uploadClear    = document.getElementById('upload-clear')
 
-// --- Local file upload ---
+const resultCard    = document.getElementById('result-card')
+const resultClose   = document.getElementById('result-close')
+const baContainer   = document.getElementById('ba-container')
+const baBeforeWrap  = document.getElementById('ba-before-wrap')
+const baBefore      = document.getElementById('ba-before')
+const baAfter       = document.getElementById('ba-after')
+const baHandle      = document.getElementById('ba-handle')
+const baLoading     = document.getElementById('ba-loading')
+const baProgress    = document.getElementById('ba-progress')
+
+const downloadBtn = document.getElementById('download-btn')
+const shareBtn    = document.getElementById('share-btn')
+const pinBtn      = document.getElementById('pin-btn')
+
+const layersBtn   = document.getElementById('layers-btn')
+const layersPanel = document.getElementById('layers-panel')
+const zoomInBtn   = document.getElementById('zoom-in')
+const zoomOutBtn  = document.getElementById('zoom-out')
+
+// ── State ────────────────────────────────────────────────────
+let currentSvUrl   = null
+let currentFile    = null
+let resultImageUrl = null
+let currentLatLng  = null
+let marker         = null
+const pinnedMarkers = []
+
+// slider state
+let isSliding = false
+
+// Street View orientation state
+let svHeading = 0
+let svPitch   = 0
+let svFov     = 90
+let isDraggingView = false
+let viewDragStartX = 0
+let viewDragStartY = 0
+let viewDragStartH = 0
+let viewDragStartP = 0
+let svFovTimer = null
+
+function refreshStreetView() {
+  if (!currentLatLng) return
+  const url = getStreetViewUrl(currentLatLng.lat, currentLatLng.lng, {
+    width: 640, height: 640, heading: svHeading, pitch: svPitch, fov: svFov
+  })
+  currentSvUrl = url
+  baBefore.src = url
+}
+
+// ── Sidebar toggle ───────────────────────────────────────────
+aiBtn.classList.add('active')
+aiBtn.addEventListener('click', () => {
+  const nowHidden = sidebar.classList.toggle('hidden')
+  aiBtn.classList.toggle('active', !nowHidden)
+})
+
+// ── Search ───────────────────────────────────────────────────
+searchInput.addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return
+  const q = searchInput.value.trim()
+  if (!q) return
+  try {
+    const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`, { headers: { 'Accept-Language': 'en' } })
+    const data = await res.json()
+    if (data[0]) map.setView([parseFloat(data[0].lat), parseFloat(data[0].lon)], 16)
+  } catch {}
+})
+
+// ── Map click ────────────────────────────────────────────────
+map.on('click', ({ latlng: { lat, lng } }) => pickLocation(lat, lng))
+
+async function pickLocation(lat, lng) {
+  if (marker) marker.remove()
+  marker = L.marker([lat, lng]).addTo(map)
+  currentLatLng = { lat, lng }
+  svHeading = 0; svPitch = 0; svFov = 90
+
+  currentSvUrl = null
+  currentFile  = null
+  resetUploadZone()
+  generateBtn.disabled = true
+  setStatus('Checking Street View coverage…')
+
+  try {
+    const ok = await hasStreetViewCoverage(lat, lng)
+    if (!ok) {
+      setStatus('No Street View here — upload an image instead')
+      return
+    }
+    currentSvUrl = getStreetViewUrl(lat, lng, { width: 640, height: 640, heading: svHeading, pitch: svPitch, fov: svFov })
+    showPreview(currentSvUrl)
+    setStatus('Ready — hit Generate')
+    generateBtn.disabled = false
+  } catch (err) {
+    setStatus(`Error: ${err.message}`)
+  }
+}
+
+// ── Upload zone ──────────────────────────────────────────────
+uploadZone.addEventListener('click', (e) => {
+  if (e.target === uploadClear || uploadClear.contains(e.target)) return
+  uploadInput.click()
+})
+
 uploadInput.addEventListener('change', () => {
   const file = uploadInput.files[0]
   if (!file) return
+  applyFile(file)
+})
 
-  currentFile = file
+uploadClear.addEventListener('click', (e) => {
+  e.stopPropagation()
+  currentFile  = null
   currentSvUrl = null
+  currentLatLng = null
+  if (marker) { marker.remove(); marker = null }
+  resetUploadZone()
+  resultCard.classList.add('hidden')
+  generateBtn.disabled = true
+  setStatus('')
+})
+
+// Drag & drop
+uploadZone.addEventListener('dragover',  (e) => { e.preventDefault(); uploadZone.classList.add('drag-over') })
+uploadZone.addEventListener('dragleave', ()  => uploadZone.classList.remove('drag-over'))
+uploadZone.addEventListener('drop',      (e) => {
+  e.preventDefault()
+  uploadZone.classList.remove('drag-over')
+  const file = e.dataTransfer.files[0]
+  if (file && file.type.startsWith('image/')) applyFile(file)
+})
+
+function applyFile(file) {
+  currentFile  = file
+  currentSvUrl = null
+  currentLatLng = null
   if (marker) { marker.remove(); marker = null }
 
   const objectUrl = URL.createObjectURL(file)
-  svPreview.innerHTML = `<img src="${objectUrl}" alt="Uploaded image" />`
-  uploadLabel.querySelector('span').textContent = file.name
+  uploadThumb.src      = objectUrl
+  uploadFilename.textContent = file.name
+  uploadEmpty.classList.add('hidden')
+  uploadLoaded.classList.remove('hidden')
+
+  showPreview(objectUrl)
+  setStatus('Ready — hit Generate')
   generateBtn.disabled = false
-  statusEl.textContent = ''
-  resultEl.innerHTML = ''
+}
+
+function resetUploadZone() {
+  uploadEmpty.classList.remove('hidden')
+  uploadLoaded.classList.add('hidden')
+  uploadInput.value = ''
+}
+
+// ── Preview (before-only) ────────────────────────────────────
+function showPreview(src) {
+  baBefore.src = src
+  baAfter.src  = ''
+  resultCard.classList.remove('has-result', 'hidden')
+  baLoading.classList.add('hidden')
+  requestAnimationFrame(() => moveSlider(100))
+}
+
+// ── Map zoom buttons ──────────────────────────────────────────
+zoomInBtn.addEventListener('click',  () => map.zoomIn())
+zoomOutBtn.addEventListener('click', () => map.zoomOut())
+
+// ── Layers ───────────────────────────────────────────────────
+layersBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  layersPanel.classList.toggle('hidden')
+  layersBtn.classList.toggle('active')
 })
 
-// --- Map click → street view preview ---
-map.on('click', async ({ latlng: { lat, lng } }) => {
-  if (marker) marker.remove()
-  marker = L.marker([lat, lng]).addTo(map)
+document.querySelectorAll('.layer-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.layer
+    if (key === activeLayer) { layersPanel.classList.add('hidden'); layersBtn.classList.remove('active'); return }
+    map.removeLayer(tileLayers[activeLayer])
+    tileLayers[key].addTo(map)
+    activeLayer = key
+    document.querySelectorAll('.layer-opt').forEach(b => b.classList.toggle('active', b.dataset.layer === key))
+    layersPanel.classList.add('hidden')
+    layersBtn.classList.remove('active')
+  })
+})
 
-  svPreview.innerHTML = '<p class="hint">Checking coverage…</p>'
-  generateBtn.disabled = true
-  currentSvUrl = null
-  currentFile = null
-  uploadInput.value = ''
-  uploadLabel.querySelector('span').textContent = 'or upload an image'
-  statusEl.textContent = ''
-
-  try {
-    const hasCoverage = await hasStreetViewCoverage(lat, lng)
-    if (!hasCoverage) {
-      svPreview.innerHTML = '<p class="hint">No Street View coverage here.<br>Try another spot.</p>'
-      return
-    }
-    currentSvUrl = getStreetViewUrl(lat, lng, { width: 640, height: 640 })
-    svPreview.innerHTML = `<img src="${currentSvUrl}" alt="Street View" />`
-    generateBtn.disabled = false
-  } catch (err) {
-    svPreview.innerHTML = `<p class="hint">Error: ${err.message}</p>`
+document.addEventListener('click', (e) => {
+  if (!layersPanel.classList.contains('hidden') && !layersBtn.contains(e.target) && !layersPanel.contains(e.target)) {
+    layersPanel.classList.add('hidden')
+    layersBtn.classList.remove('active')
   }
 })
 
-// --- Generate button ---
+// ── Generate ─────────────────────────────────────────────────
 generateBtn.addEventListener('click', async () => {
   const source = currentFile ?? currentSvUrl
   if (!source) return
 
+  const wasFromMap = !!currentSvUrl
   generateBtn.disabled = true
-  resultEl.innerHTML = ''
-  statusEl.textContent = 'Uploading image…'
+  baLoading.classList.remove('hidden')
+  baProgress.textContent = 'Uploading…'
+  setStatus('Uploading image…')
 
   try {
-    const url = await generateImage(
+    const generated = await generateImage(
       source,
-      promptEl.value.trim(),
+      buildPrompt(),
       (pct) => {
-        statusEl.textContent = pct < 100 ? `Generating… ${Math.round(pct)}%` : 'Done!'
-      }
+        baProgress.textContent = pct < 100 ? `${Math.round(pct)}%` : 'Done!'
+        setStatus(pct < 100 ? `Generating… ${Math.round(pct)}%` : 'Done!')
+      },
     )
-    resultEl.innerHTML = `<img src="${url}" alt="Generated" />`
-    statusEl.textContent = 'Done!'
+
+    resultImageUrl = generated
+    baAfter.src    = generated
+    baLoading.classList.add('hidden')
+    resultCard.classList.add('has-result')
+
+    baBeforeWrap.classList.add('animating')
+    requestAnimationFrame(() => {
+      moveSlider(50)
+      setTimeout(() => baBeforeWrap.classList.remove('animating'), 650)
+    })
+
+    downloadBtn.disabled = false
+    shareBtn.disabled    = false
+    pinBtn.disabled      = !wasFromMap
+    pinBtn.classList.remove('pinned')
+    setStatus('Done!')
   } catch (err) {
-    statusEl.textContent = `Error: ${err.message}`
+    baLoading.classList.add('hidden')
+    setStatus(`Error: ${err.message}`)
   } finally {
     generateBtn.disabled = false
   }
 })
 
-// --- Connection badge ---
+// ── Result close ─────────────────────────────────────────────
+resultClose.addEventListener('click', () => resultCard.classList.add('hidden'))
+
+// ── Before / After slider ────────────────────────────────────
+function moveSlider(pct) {
+  baBeforeWrap.style.width = `${pct}%`
+  baBefore.style.width     = `${baContainer.offsetWidth}px`
+  baBefore.style.height    = `${baContainer.offsetHeight}px`
+  baHandle.style.left      = `${pct}%`
+}
+
+function sliderPct() {
+  return parseFloat(baBeforeWrap.style.width) || 50
+}
+
+function pctFromX(clientX) {
+  const rect = baContainer.getBoundingClientRect()
+  return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))
+}
+
+function onBeforeSide(clientX) {
+  const rect = baContainer.getBoundingClientRect()
+  return (clientX - rect.left) / rect.width * 100 < sliderPct()
+}
+
+// Single mousedown listener on container — decides slider vs Street View rotation
+baContainer.addEventListener('mousedown', (e) => {
+  e.preventDefault()
+
+  if (baHandle.contains(e.target)) {
+    isSliding = true
+  } else if (onBeforeSide(e.clientX) && currentLatLng) {
+    isDraggingView = true
+    viewDragStartX = e.clientX
+    viewDragStartY = e.clientY
+    viewDragStartH = svHeading
+    viewDragStartP = svPitch
+    baBeforeWrap.style.cursor = 'grabbing'
+  }
+})
+
+document.addEventListener('mousemove', (e) => {
+  if (isSliding) moveSlider(pctFromX(e.clientX))
+  if (isDraggingView) {
+    const dx = e.clientX - viewDragStartX
+    const dy = e.clientY - viewDragStartY
+    svHeading = (viewDragStartH + dx * 0.3 + 360) % 360
+    svPitch   = Math.max(-90, Math.min(90, viewDragStartP - dy * 0.15))
+  }
+})
+
+document.addEventListener('mouseup', () => {
+  isSliding = false
+  if (isDraggingView) {
+    isDraggingView = false
+    baBeforeWrap.style.cursor = ''
+    refreshStreetView()
+  }
+})
+
+// Touch equivalents
+baContainer.addEventListener('touchstart', (e) => {
+  if (baHandle.contains(e.target)) {
+    isSliding = true
+  } else if (onBeforeSide(e.touches[0].clientX) && currentLatLng) {
+    isDraggingView = true
+    viewDragStartX = e.touches[0].clientX
+    viewDragStartY = e.touches[0].clientY
+    viewDragStartH = svHeading
+    viewDragStartP = svPitch
+  }
+}, { passive: true })
+
+document.addEventListener('touchmove', (e) => {
+  if (isSliding) moveSlider(pctFromX(e.touches[0].clientX))
+  if (isDraggingView) {
+    const dx = e.touches[0].clientX - viewDragStartX
+    const dy = e.touches[0].clientY - viewDragStartY
+    svHeading = (viewDragStartH + dx * 0.3 + 360) % 360
+    svPitch   = Math.max(-90, Math.min(90, viewDragStartP - dy * 0.15))
+  }
+}, { passive: true })
+
+document.addEventListener('touchend', () => {
+  isSliding = false
+  if (isDraggingView) {
+    isDraggingView = false
+    refreshStreetView()
+  }
+})
+
+// ── Scroll to change FOV (before side only) ───────────────────
+baContainer.addEventListener('wheel', (e) => {
+  e.preventDefault()
+  if (!onBeforeSide(e.clientX) || !currentLatLng) return
+  svFov = Math.max(10, Math.min(120, svFov + (e.deltaY > 0 ? 5 : -5)))
+  clearTimeout(svFovTimer)
+  svFovTimer = setTimeout(refreshStreetView, 200)
+}, { passive: false })
+
+// ── Download ─────────────────────────────────────────────────
+downloadBtn.addEventListener('click', () => {
+  if (!resultImageUrl) return
+  const a = document.createElement('a')
+  a.href     = resultImageUrl
+  a.download = `vitruviews_${Date.now()}.png`
+  a.click()
+})
+
+// ── Share (copy URL to clipboard) ────────────────────────────
+shareBtn.addEventListener('click', async () => {
+  if (!resultImageUrl) return
+  try {
+    const fullUrl = window.location.origin + resultImageUrl
+    await navigator.clipboard.writeText(fullUrl)
+    setStatus('Link copied to clipboard!')
+    setTimeout(() => setStatus('Done!'), 2000)
+  } catch {
+    setStatus('Could not copy — try downloading instead')
+  }
+})
+
+// ── Pin result to map ─────────────────────────────────────────
+pinBtn.addEventListener('click', () => {
+  if (!resultImageUrl || !currentLatLng) return
+
+  const { lat, lng } = currentLatLng
+  const pinIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:12px;height:12px;background:#0d9488;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  })
+
+  const popup = L.popup({ maxWidth: 220, className: 'result-popup' }).setContent(
+    `<img src="${resultImageUrl}" style="width:200px;border-radius:8px;display:block;" />`
+  )
+  const m = L.marker([lat, lng], { icon: pinIcon }).addTo(map).bindPopup(popup)
+  pinnedMarkers.push(m)
+
+  pinBtn.classList.add('pinned')
+  setStatus('Result pinned to map!')
+  setTimeout(() => setStatus('Done!'), 2000)
+})
+
+// ── Prompt builder ────────────────────────────────────────────
+function buildPrompt() {
+  const features = []
+  if (document.getElementById('tog-pedestrian').checked) features.push('pedestrians, sidewalk')
+  if (document.getElementById('tog-bike').checked)       features.push('cyclists, bike lane')
+  if (document.getElementById('tog-tree').checked)       features.push('trees, greenery, vegetation')
+
+  const v = parseInt(intensityEl.value)
+  const intensity = v > 66 ? 'dramatic transformation' : v > 33 ? 'moderate transformation' : 'subtle transformation'
+
+  return [features.join(', '), promptEl.value.trim(), intensity].filter(Boolean).join(', ')
+}
+
+// ── Status ───────────────────────────────────────────────────
+function setStatus(msg) { statusEl.textContent = msg }
+
+// ── Connection check ─────────────────────────────────────────
 async function checkConnection() {
-  connDot.className = ''
-  connLabel.textContent = 'Checking ComfyUI…'
   try {
     const ok = await ping()
     connDot.className = ok ? 'ok' : 'err'
-    connLabel.textContent = ok ? 'ComfyUI connected' : 'ComfyUI not reachable — is it running on :8188?'
+    if (!ok) setStatus('ComfyUI not reachable — is it running on :8188?')
   } catch {
     connDot.className = 'err'
-    connLabel.textContent = 'ComfyUI not reachable — is it running on :8188?'
+    setStatus('ComfyUI not reachable — is it running on :8188?')
   }
 }
-
-connRetry.addEventListener('click', checkConnection)
 checkConnection()
+setInterval(checkConnection, 30000)

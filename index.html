@@ -1,38 +1,190 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Street View → AI</title>
-    <link rel="stylesheet" href="/style.css" />
-  </head>
-  <body>
-    <div id="map"></div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vitru.views</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="map"></div>
 
-    <div id="panel">
-      <div id="conn-badge">
+  <!-- Top-left: search + sidebar -->
+  <div id="top-left">
+    <div id="search-bar">
+      <button id="ai-btn" title="Toggle controls">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z"/>
+        </svg>
         <span id="conn-dot"></span>
-        <span id="conn-label">Checking ComfyUI…</span>
-        <button id="conn-retry" title="Re-check">↺</button>
-      </div>
-      <div id="sv-preview">
-        <p class="hint">Click the map to pick a location</p>
-      </div>
-
-      <label id="upload-label">
-        <input type="file" id="upload-input" accept="image/*" />
-        <span>or upload an image</span>
-      </label>
-
-      <textarea id="prompt" rows="4" placeholder="Describe the transformation…">Blue sky, bike lane, cyclers, pedestrian, modern buildings, composite, glass, wood, trees, greenery, architectural rendering, daytime, natural warm light, shadows, urban, perspective, lateral, ground level</textarea>
-
-      <button id="generate-btn" disabled>Generate</button>
-
-      <div id="status"></div>
-
-      <div id="result"></div>
+      </button>
+      <input id="search-input" type="text" placeholder="Search a street or city" autocomplete="off" spellcheck="false" />
     </div>
 
-    <script type="module" src="/app.js"></script>
-  </body>
+    <aside id="sidebar">
+      <!-- App name -->
+      <div id="sidebar-header">
+        <span id="app-name">vitru<span class="accent">.</span>views</span>
+      </div>
+
+      <!-- Instructions + upload -->
+      <div class="section no-border">
+        <p class="instructions">Click on the map or upload an image to get started.</p>
+        <div id="upload-zone">
+          <div id="upload-empty">
+            <svg width="20" height="20" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M35 25V31.6667C35 32.5507 34.6488 33.3986 34.0237 34.0237C33.3986 34.6488 32.5507 35 31.6667 35H8.33333C7.44928 35 6.60143 34.6488 5.97631 34.0237C5.35119 33.3986 5 32.5507 5 31.6667V25M11.6667 13.3333L20 5L28.3333 13.3333M20 5V25"/>
+            </svg>
+            <span class="upload-label">Upload an image</span>
+            <span class="upload-hint">or drag &amp; drop</span>
+          </div>
+          <div id="upload-loaded" class="hidden">
+            <img id="upload-thumb" alt="" />
+            <div class="upload-file-info">
+              <span id="upload-filename"></span>
+              <span class="upload-hint">Click to change</span>
+            </div>
+            <button id="upload-clear" title="Clear">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Features -->
+      <div class="section">
+        <p class="section-label">Features</p>
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span>Pedestrian</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="tog-pedestrian" checked />
+              <span class="toggle-track"></span>
+            </div>
+          </label>
+          <label class="toggle-row">
+            <span>Bike</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="tog-bike" checked />
+              <span class="toggle-track"></span>
+            </div>
+          </label>
+          <label class="toggle-row">
+            <span>Trees</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="tog-tree" checked />
+              <span class="toggle-track"></span>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Intensity -->
+      <div class="section">
+        <p class="section-label">Change Intensity</p>
+        <input type="range" id="intensity" min="0" max="100" value="75" />
+        <div class="range-labels"><span>Subtle</span><span>Strong</span></div>
+      </div>
+
+      <!-- Prompt -->
+      <div class="section">
+        <p class="section-label">Prompt</p>
+        <textarea id="prompt" rows="5">Blue sky, bike lane, cyclers, pedestrian, modern buildings, composite, glass, wood, trees, greenery, architectural rendering, daytime, natural warm light, shadows, urban, perspective, lateral, ground level</textarea>
+      </div>
+
+      <button id="generate-btn" disabled>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z"/>
+        </svg>
+        Generate
+      </button>
+
+      <p id="status"></p>
+    </aside>
+  </div>
+
+  <!-- Result card (centered) -->
+  <div id="result-card" class="hidden">
+    <button id="result-close">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M18 6L6 18M6 6l12 12"/>
+      </svg>
+    </button>
+    <div id="ba-container">
+      <img id="ba-after" alt="Generated" />
+      <div id="ba-before-wrap">
+        <img id="ba-before" alt="Original" />
+      </div>
+      <div id="ba-handle"><div id="ba-handle-btn">↔</div></div>
+      <div id="ba-loading" class="hidden">
+        <div class="ba-spinner"></div>
+        <span id="ba-progress"></span>
+      </div>
+      <span class="ba-label" id="ba-label-before">Before</span>
+      <span class="ba-label" id="ba-label-after">After</span>
+    </div>
+
+    <!-- Action strip -->
+    <div id="card-actions">
+      <button class="card-action-btn" id="download-btn" disabled>
+        <svg width="15" height="15" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M42 30V38C42 39.0609 41.5786 40.0783 40.8284 40.8284C40.0783 41.5786 39.0609 42 38 42H10C8.93913 42 7.92172 41.5786 7.17157 40.8284C6.42143 40.0783 6 39.0609 6 38V30M34 20L24 30L14 20M24 30V6"/>
+        </svg>
+        Download
+      </button>
+      <button class="card-action-btn" id="share-btn" disabled>
+        <svg width="15" height="15" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.3167 22.5166L25.7 29.15M25.6833 10.85L14.3167 17.4833M35 8.33331C35 11.0947 32.7614 13.3333 30 13.3333C27.2386 13.3333 25 11.0947 25 8.33331C25 5.57189 27.2386 3.33331 30 3.33331C32.7614 3.33331 35 5.57189 35 8.33331ZM15 20C15 22.7614 12.7614 25 10 25C7.23858 25 5 22.7614 5 20C5 17.2386 7.23858 15 10 15C12.7614 15 15 17.2386 15 20ZM35 31.6666C35 34.4281 32.7614 36.6666 30 36.6666C27.2386 36.6666 25 34.4281 25 31.6666C25 28.9052 27.2386 26.6666 30 26.6666C32.7614 26.6666 35 28.9052 35 31.6666Z"/>
+        </svg>
+        Share
+      </button>
+      <button class="card-action-btn" id="pin-btn" disabled>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+        Pin
+      </button>
+    </div>
+  </div>
+
+  <!-- Bottom-right toolbar wrap (layers panel stacks above) -->
+  <div id="toolbar-wrap">
+    <div id="layers-panel" class="hidden">
+      <button class="layer-opt active" data-layer="street">Street</button>
+      <button class="layer-opt" data-layer="light">Light</button>
+      <button class="layer-opt" data-layer="dark">Dark</button>
+      <button class="layer-opt" data-layer="satellite">Satellite</button>
+    </div>
+    <div id="toolbar">
+      <div class="tool-group">
+        <button class="tool-btn" id="layers-btn" title="Map layers">
+          <svg width="16" height="16" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 34L24 44L44 34M4 24L24 34L44 24M24 4L4 14L24 24L44 14L24 4Z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="tool-group">
+        <button class="tool-btn" id="zoom-in" title="Zoom in">
+          <svg width="16" height="16" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round">
+            <path d="M24 10V38M10 24H38"/>
+          </svg>
+        </button>
+        <button class="tool-btn" id="zoom-out" title="Zoom out">
+          <svg width="16" height="16" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round">
+            <path d="M10 24H38"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="upload-input" accept="image/*" style="display:none" />
+  <script type="module" src="/app.js"></script>
+</body>
 </html>
