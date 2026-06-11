@@ -136,8 +136,9 @@ body {
   letter-spacing: -0.03em;
   color: var(--charcoal);
 }
-#app-name .accent { color: var(--teal); }
-#app-name .suffix { font-weight: 400; }
+#app-name .accent { 
+  color: var(--teal);
+  font-size: 30px; }
 
 /* ── Sections ───────────────────────────────────────────────── */
 .section {
