@@ -2,12 +2,37 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>gen-ai</title>
+    <title>Street View → AI</title>
+    <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
+    <div id="map"></div>
+
+    <div id="panel">
+      <div id="conn-badge">
+        <span id="conn-dot"></span>
+        <span id="conn-label">Checking ComfyUI…</span>
+        <button id="conn-retry" title="Re-check">↺</button>
+      </div>
+      <div id="sv-preview">
+        <p class="hint">Click the map to pick a location</p>
+      </div>
+
+      <label id="upload-label">
+        <input type="file" id="upload-input" accept="image/*" />
+        <span>or upload an image</span>
+      </label>
+
+      <textarea id="prompt" rows="4" placeholder="Describe the transformation…">Blue sky, bike lane, cyclers, pedestrian, modern buildings, composite, glass, wood, trees, greenery, architectural rendering, daytime, natural warm light, shadows, urban, perspective, lateral, ground level</textarea>
+
+      <button id="generate-btn" disabled>Generate</button>
+
+      <div id="status"></div>
+
+      <div id="result"></div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
   </body>
 </html>
