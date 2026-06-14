@@ -3,12 +3,16 @@ import 'leaflet/dist/leaflet.css'
 import { getStreetViewUrl, hasStreetViewCoverage } from './services/streetview.js'
 import { generateImage, ping } from './services/comfyui.js'
 
-import markerIcon   from 'leaflet/dist/images/marker-icon.png'
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
-import markerShadow from 'leaflet/dist/images/marker-shadow.png'
-
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
+const tealMarkerIcon = L.divIcon({
+  className: '',
+  html: `<svg width="24" height="36" viewBox="0 0 24 36" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24C24 5.373 18.627 0 12 0z" fill="#0d9488"/>
+    <circle cx="12" cy="12" r="5" fill="white"/>
+  </svg>`,
+  iconSize:   [24, 36],
+  iconAnchor: [12, 36],
+  popupAnchor:[0, -36],
+})
 
 // ── Map ──────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: false }).setView([41.385, 2.176], 14)
@@ -129,7 +133,7 @@ map.on('click', ({ latlng: { lat, lng } }) => pickLocation(lat, lng))
 
 async function pickLocation(lat, lng) {
   if (marker) marker.remove()
-  marker = L.marker([lat, lng]).addTo(map)
+  marker = L.marker([lat, lng], { icon: tealMarkerIcon }).addTo(map)
   currentLatLng = { lat, lng }
   svHeading = 0; svPitch = 0; svFov = 90
 
