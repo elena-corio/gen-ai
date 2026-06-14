@@ -400,6 +400,7 @@ body {
   transform: translate(-50%, -50%);
   z-index: 2000;
   width: min(520px, 90vw);
+  transition: width 0.25s ease;
   background: var(--white);
   border-radius: var(--radius-lg);
   border: var(--border);
@@ -412,6 +413,26 @@ body {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
+
+#result-card.expanded { width: min(780px, 95vw); }
+
+#result-expand, #result-close {
+  position: absolute;
+  top: 12px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: var(--border);
+  background: var(--white);
+  color: var(--grey-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+  transition: background 0.15s;
+}
+#result-expand { right: 48px; }
+#result-expand:hover { background: var(--grey-100); }
 
 #result-close {
   position: absolute;
