@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
 </head>
 <body>
   <div id="map"></div>
@@ -100,7 +101,7 @@
       <!-- Prompt -->
       <div class="section">
         <p class="section-label">Prompt</p>
-        <textarea id="prompt" rows="5">Blue sky, bike lane, cyclers, pedestrian, modern buildings, composite, glass, wood, trees, greenery, architectural rendering, daytime, natural warm light, shadows, urban, perspective, lateral, ground level</textarea>
+        <textarea id="prompt" rows="5">Architectural rendering, urban, daytime, natural warm light, shadows, perspective, ground level</textarea>
       </div>
 
       <button id="generate-btn" disabled>
@@ -109,6 +110,11 @@
         </svg>
         Generate
       </button>
+
+      <div id="regen-row" class="hidden">
+        <button class="regen-btn" id="regen-next-btn">Next ×<span id="mult-label">2</span></button>
+        <button class="regen-btn" id="regen-random-btn">Random seed</button>
+      </div>
 
       <p id="status"></p>
     </aside>
@@ -137,12 +143,19 @@
 
     <!-- Action strip -->
     <div id="card-actions">
-      <button class="card-action-btn" id="download-btn" disabled>
-        <svg width="15" height="15" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M42 30V38C42 39.0609 41.5786 40.0783 40.8284 40.8284C40.0783 41.5786 39.0609 42 38 42H10C8.93913 42 7.92172 41.5786 7.17157 40.8284C6.42143 40.0783 6 39.0609 6 38V30M34 20L24 30L14 20M24 30V6"/>
-        </svg>
-        Download
-      </button>
+      <div id="download-wrap">
+        <button class="card-action-btn" id="download-btn" disabled>
+          <svg width="15" height="15" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M42 30V38C42 39.0609 41.5786 40.0783 40.8284 40.8284C40.0783 41.5786 39.0609 42 38 42H10C8.93913 42 7.92172 41.5786 7.17157 40.8284C6.42143 40.0783 6 39.0609 6 38V30M34 20L24 30L14 20M24 30V6"/>
+          </svg>
+          Download ▾
+        </button>
+        <div id="download-menu" class="hidden">
+          <button class="dl-item" id="dl-original">Original</button>
+          <button class="dl-item" id="dl-inpainted">Inpainted</button>
+          <button class="dl-item" id="dl-final">Final result</button>
+        </div>
+      </div>
       <button class="card-action-btn" id="share-btn" disabled>
         <svg width="15" height="15" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14.3167 22.5166L25.7 29.15M25.6833 10.85L14.3167 17.4833M35 8.33331C35 11.0947 32.7614 13.3333 30 13.3333C27.2386 13.3333 25 11.0947 25 8.33331C25 5.57189 27.2386 3.33331 30 3.33331C32.7614 3.33331 35 5.57189 35 8.33331ZM15 20C15 22.7614 12.7614 25 10 25C7.23858 25 5 22.7614 5 20C5 17.2386 7.23858 15 10 15C12.7614 15 15 17.2386 15 20ZM35 31.6666C35 34.4281 32.7614 36.6666 30 36.6666C27.2386 36.6666 25 34.4281 25 31.6666C25 28.9052 27.2386 26.6666 30 26.6666C32.7614 26.6666 35 28.9052 35 31.6666Z"/>

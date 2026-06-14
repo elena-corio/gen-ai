@@ -27,7 +27,11 @@ tileLayers.street.addTo(map)
 const aiBtn       = document.getElementById('ai-btn')
 const sidebar     = document.getElementById('sidebar')
 const searchInput = document.getElementById('search-input')
-const generateBtn = document.getElementById('generate-btn')
+const generateBtn    = document.getElementById('generate-btn')
+const regenRow       = document.getElementById('regen-row')
+const regenNextBtn   = document.getElementById('regen-next-btn')
+const regenRandomBtn = document.getElementById('regen-random-btn')
+const multLabel      = document.getElementById('mult-label')
 const promptEl    = document.getElementById('prompt')
 const statusEl    = document.getElementById('status')
 const intensityEl = document.getElementById('intensity')
@@ -51,9 +55,13 @@ const baHandle      = document.getElementById('ba-handle')
 const baLoading     = document.getElementById('ba-loading')
 const baProgress    = document.getElementById('ba-progress')
 
-const downloadBtn = document.getElementById('download-btn')
-const shareBtn    = document.getElementById('share-btn')
-const pinBtn      = document.getElementById('pin-btn')
+const downloadBtn     = document.getElementById('download-btn')
+const downloadMenu    = document.getElementById('download-menu')
+const dlOriginalBtn   = document.getElementById('dl-original')
+const dlInpaintedBtn  = document.getElementById('dl-inpainted')
+const dlFinalBtn      = document.getElementById('dl-final')
+const shareBtn        = document.getElementById('share-btn')
+const pinBtn          = document.getElementById('pin-btn')
 
 const layersBtn   = document.getElementById('layers-btn')
 const layersPanel = document.getElementById('layers-panel')
@@ -61,12 +69,17 @@ const zoomInBtn   = document.getElementById('zoom-in')
 const zoomOutBtn  = document.getElementById('zoom-out')
 
 // ── State ────────────────────────────────────────────────────
-let currentSvUrl   = null
-let currentFile    = null
-let resultImageUrl = null
-let currentLatLng  = null
-let marker         = null
-const pinnedMarkers = []
+let currentSvUrl      = null
+let currentFile       = null
+let originalImageUrl  = null
+let inpaintedImageUrl = null
+let resultImageUrl    = null
+let currentLatLng     = null
+let marker            = null
+const pinnedMarkers   = []
+
+const BASE_SEED     = 5
+let seedMultiplier  = 1
 
 // slider state
 let isSliding = false
@@ -181,6 +194,7 @@ function applyFile(file) {
   if (marker) { marker.remove(); marker = null }
 
   const objectUrl = URL.createObjectURL(file)
+  originalImageUrl = objectUrl
   uploadThumb.src      = objectUrl
   uploadFilename.textContent = file.name
   uploadEmpty.classList.add('hidden')
@@ -238,28 +252,51 @@ document.addEventListener('click', (e) => {
 })
 
 // ── Generate ─────────────────────────────────────────────────
-generateBtn.addEventListener('click', async () => {
+generateBtn.addEventListener('click', () => {
+  seedMultiplier = 1
+  runGeneration(BASE_SEED)
+})
+
+regenNextBtn.addEventListener('click', () => {
+  seedMultiplier++
+  multLabel.textContent = seedMultiplier + 1
+  runGeneration(BASE_SEED * seedMultiplier)
+})
+
+regenRandomBtn.addEventListener('click', () => {
+  runGeneration(Math.floor(Math.random() * 2 ** 32))
+})
+
+async function runGeneration(seed) {
   const source = currentFile ?? currentSvUrl
   if (!source) return
 
+  // Capture the street view URL at generation time so drag/pan/fov changes are included
+  if (currentSvUrl) originalImageUrl = currentSvUrl
+
   const wasFromMap = !!currentSvUrl
-  generateBtn.disabled = true
+  generateBtn.disabled   = true
+  regenNextBtn.disabled  = true
+  regenRandomBtn.disabled = true
   baLoading.classList.remove('hidden')
   baProgress.textContent = 'Uploading…'
   setStatus('Uploading image…')
 
   try {
-    const generated = await generateImage(
+    const { inpainted, final } = await generateImage(
       source,
-      buildPrompt(),
+      seed,
       (pct) => {
-        baProgress.textContent = pct < 100 ? `${Math.round(pct)}%` : 'Done!'
-        setStatus(pct < 100 ? `Generating… ${Math.round(pct)}%` : 'Done!')
+        const step  = pct <= 50 ? 'Inpainting' : 'Styling'
+        const label = pct < 100 ? `${step}… ${Math.round(pct)}%` : 'Done!'
+        baProgress.textContent = label
+        setStatus(label)
       },
     )
 
-    resultImageUrl = generated
-    baAfter.src    = generated
+    inpaintedImageUrl = inpainted
+    resultImageUrl    = final
+    baAfter.src       = final
     baLoading.classList.add('hidden')
     resultCard.classList.add('has-result')
 
@@ -269,18 +306,22 @@ generateBtn.addEventListener('click', async () => {
       setTimeout(() => baBeforeWrap.classList.remove('animating'), 650)
     })
 
-    downloadBtn.disabled = false
-    shareBtn.disabled    = false
-    pinBtn.disabled      = !wasFromMap
+    regenRow.classList.remove('hidden')
+    multLabel.textContent = seedMultiplier + 1
+    downloadBtn.disabled  = false
+    shareBtn.disabled     = false
+    pinBtn.disabled       = !wasFromMap
     pinBtn.classList.remove('pinned')
     setStatus('Done!')
   } catch (err) {
     baLoading.classList.add('hidden')
     setStatus(`Error: ${err.message}`)
   } finally {
-    generateBtn.disabled = false
+    generateBtn.disabled    = false
+    regenNextBtn.disabled   = false
+    regenRandomBtn.disabled = false
   }
-})
+}
 
 // ── Result close ─────────────────────────────────────────────
 resultClose.addEventListener('click', () => resultCard.classList.add('hidden'))
@@ -328,8 +369,8 @@ document.addEventListener('mousemove', (e) => {
   if (isDraggingView) {
     const dx = e.clientX - viewDragStartX
     const dy = e.clientY - viewDragStartY
-    svHeading = (viewDragStartH + dx * 0.3 + 360) % 360
-    svPitch   = Math.max(-90, Math.min(90, viewDragStartP - dy * 0.15))
+    svHeading = (viewDragStartH - dx * 0.3 + 360) % 360
+    svPitch   = Math.max(-90, Math.min(90, viewDragStartP + dy * 0.15))
   }
 })
 
@@ -360,8 +401,8 @@ document.addEventListener('touchmove', (e) => {
   if (isDraggingView) {
     const dx = e.touches[0].clientX - viewDragStartX
     const dy = e.touches[0].clientY - viewDragStartY
-    svHeading = (viewDragStartH + dx * 0.3 + 360) % 360
-    svPitch   = Math.max(-90, Math.min(90, viewDragStartP - dy * 0.15))
+    svHeading = (viewDragStartH - dx * 0.3 + 360) % 360
+    svPitch   = Math.max(-90, Math.min(90, viewDragStartP + dy * 0.15))
   }
 }, { passive: true })
 
@@ -382,13 +423,40 @@ baContainer.addEventListener('wheel', (e) => {
   svFovTimer = setTimeout(refreshStreetView, 200)
 }, { passive: false })
 
-// ── Download ─────────────────────────────────────────────────
-downloadBtn.addEventListener('click', () => {
-  if (!resultImageUrl) return
-  const a = document.createElement('a')
-  a.href     = resultImageUrl
-  a.download = `vitruviews_${Date.now()}.png`
-  a.click()
+// ── Download dropdown ─────────────────────────────────────────
+downloadBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  downloadMenu.classList.toggle('hidden')
+})
+
+document.addEventListener('click', () => downloadMenu.classList.add('hidden'))
+
+async function downloadUrl(url, filename) {
+  try {
+    const res    = await fetch(url)
+    const blob   = await res.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl; a.download = filename; a.click()
+    URL.revokeObjectURL(blobUrl)
+  } catch {
+    window.open(url, '_blank')
+  }
+}
+
+dlOriginalBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (originalImageUrl) downloadUrl(originalImageUrl, `vitruviews_original_${Date.now()}.jpg`)
+})
+
+dlInpaintedBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (inpaintedImageUrl) downloadUrl(inpaintedImageUrl, `vitruviews_inpainted_${Date.now()}.png`)
+})
+
+dlFinalBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (resultImageUrl) downloadUrl(resultImageUrl, `vitruviews_final_${Date.now()}.png`)
 })
 
 // ── Share (copy URL to clipboard) ────────────────────────────
@@ -437,7 +505,7 @@ function buildPrompt() {
   const v = parseInt(intensityEl.value)
   const intensity = v > 66 ? 'dramatic transformation' : v > 33 ? 'moderate transformation' : 'subtle transformation'
 
-  return [features.join(', '), promptEl.value.trim(), intensity].filter(Boolean).join(', ')
+  return ['hen_lar_urban', features.join(', '), promptEl.value.trim(), intensity].filter(Boolean).join(', ')
 }
 
 // ── Status ───────────────────────────────────────────────────
