@@ -608,6 +608,23 @@ body {
 }
 .card-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
+.pin-expand-icon {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  background: rgba(0,0,0,0.45);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.pin-thumb:hover .pin-expand-icon { opacity: 1; }
+
 #pin-btn.pinned {
   border-color: var(--teal);
   color: var(--teal);
@@ -701,12 +718,6 @@ body {
 }
 .tool-btn:hover { background: var(--grey-100); color: var(--charcoal); }
 .tool-btn.active { color: var(--teal); background: var(--teal-light); }
-
-/* ── Regen row ──────────────────────────────────────────────── */
-#regen-row {
-  display: flex;
-  gap: 6px;
-}
 
 .regen-btn {
   flex: 1;

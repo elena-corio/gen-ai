@@ -32,10 +32,7 @@ const aiBtn       = document.getElementById('ai-btn')
 const sidebar     = document.getElementById('sidebar')
 const searchInput = document.getElementById('search-input')
 const generateBtn    = document.getElementById('generate-btn')
-const regenRow       = document.getElementById('regen-row')
-const regenNextBtn   = document.getElementById('regen-next-btn')
-const regenRandomBtn = document.getElementById('regen-random-btn')
-const multLabel      = document.getElementById('mult-label')
+const generateLabel  = document.getElementById('generate-label')
 const promptEl    = document.getElementById('prompt')
 const statusEl    = document.getElementById('status')
 const intensityEl = document.getElementById('intensity')
@@ -82,9 +79,10 @@ let resultImageUrl    = null
 let currentLatLng     = null
 let marker            = null
 const pinnedMarkers   = []
+let currentPinnedEntry = null
 
-const BASE_SEED     = 5
-let seedMultiplier  = 1
+const BASE_SEED = 5
+let hasGenerated = false
 
 // slider state
 let isSliding = false
@@ -152,6 +150,8 @@ async function pickLocation(lat, lng) {
     currentSvUrl = getStreetViewUrl(lat, lng, { width: 640, height: 640, heading: svHeading, pitch: svPitch, fov: svFov })
     showPreview(currentSvUrl)
     setStatus('Ready — hit Generate')
+    hasGenerated = false
+    generateLabel.textContent = 'Generate'
     generateBtn.disabled = false
   } catch (err) {
     setStatus(`Error: ${err.message}`)
@@ -207,6 +207,8 @@ function applyFile(file) {
 
   showPreview(objectUrl)
   setStatus('Ready — hit Generate')
+  hasGenerated = false
+  generateLabel.textContent = 'Generate'
   generateBtn.disabled = false
 }
 
@@ -256,20 +258,9 @@ document.addEventListener('click', (e) => {
   }
 })
 
-// ── Generate ─────────────────────────────────────────────────
+// ── Generate / Regenerate ─────────────────────────────────────
 generateBtn.addEventListener('click', () => {
-  seedMultiplier = 1
-  runGeneration(BASE_SEED)
-})
-
-regenNextBtn.addEventListener('click', () => {
-  seedMultiplier++
-  multLabel.textContent = seedMultiplier + 1
-  runGeneration(BASE_SEED * seedMultiplier)
-})
-
-regenRandomBtn.addEventListener('click', () => {
-  runGeneration(Math.floor(Math.random() * 2 ** 32))
+  runGeneration(hasGenerated ? Math.floor(Math.random() * 2 ** 32) : BASE_SEED)
 })
 
 async function runGeneration(seed) {
@@ -280,9 +271,7 @@ async function runGeneration(seed) {
   if (currentSvUrl) originalImageUrl = currentSvUrl
 
   const wasFromMap = !!currentSvUrl
-  generateBtn.disabled   = true
-  regenNextBtn.disabled  = true
-  regenRandomBtn.disabled = true
+  generateBtn.disabled = true
   baLoading.classList.remove('hidden')
   baProgress.textContent = 'Uploading…'
   setStatus('Uploading image…')
@@ -311,25 +300,39 @@ async function runGeneration(seed) {
       setTimeout(() => baBeforeWrap.classList.remove('animating'), 650)
     })
 
-    regenRow.classList.remove('hidden')
-    multLabel.textContent = seedMultiplier + 1
+    hasGenerated = true
+    generateLabel.textContent = 'Regenerate'
     downloadBtn.disabled  = false
     shareBtn.disabled     = false
+    currentPinnedEntry = null
+    resetPinBtn()
     pinBtn.disabled       = !wasFromMap
-    pinBtn.classList.remove('pinned')
     setStatus('Done!')
   } catch (err) {
     baLoading.classList.add('hidden')
     setStatus(`Error: ${err.message}`)
   } finally {
-    generateBtn.disabled    = false
-    regenNextBtn.disabled   = false
-    regenRandomBtn.disabled = false
+    generateBtn.disabled = false
   }
 }
 
+function resetPinBtn() {
+  pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+    <circle cx="12" cy="10" r="3"/>
+  </svg>Pin`
+  pinBtn.classList.remove('pinned')
+}
+
 // ── Result close / expand ─────────────────────────────────────
-resultClose.addEventListener('click', () => resultCard.classList.add('hidden'))
+resultClose.addEventListener('click', () => {
+  resultCard.classList.add('hidden')
+  if (currentPinnedEntry) {
+    currentPinnedEntry = null
+    resetPinBtn()
+    pinBtn.disabled = true
+  }
+})
 
 resultExpand.addEventListener('click', () => {
   const expanded = resultCard.classList.toggle('expanded')
@@ -491,23 +494,79 @@ shareBtn.addEventListener('click', async () => {
 
 // ── Pin result to map ─────────────────────────────────────────
 pinBtn.addEventListener('click', () => {
+  if (currentPinnedEntry) {
+    currentPinnedEntry.marker.remove()
+    const idx = pinnedMarkers.indexOf(currentPinnedEntry)
+    if (idx !== -1) pinnedMarkers.splice(idx, 1)
+    currentPinnedEntry = null
+    resultCard.classList.add('hidden')
+    resetPinBtn()
+    pinBtn.disabled = true
+    setStatus('Pin removed')
+    setTimeout(() => setStatus(''), 2000)
+    return
+  }
+
   if (!resultImageUrl || !currentLatLng) return
 
   const { lat, lng } = currentLatLng
+  const snapOriginal = originalImageUrl
+  const snapResult   = resultImageUrl
+
   const pinIcon = L.divIcon({
     className: '',
-    html: `<div style="width:12px;height:12px;background:#0d9488;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-    iconSize: [12, 12],
-    iconAnchor: [6, 6],
+    html: `<div style="position:relative;width:72px;height:72px;">
+      <div class="pin-thumb" style="
+        position:relative;
+        width:100%;height:100%;
+        border:3px solid white;border-radius:6px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.35);
+        background:url('${snapResult}') center/cover;
+        cursor:pointer;
+        overflow:hidden;
+      ">
+        <div class="pin-expand-icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+            <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </div>
+      </div>
+    </div>`,
+    iconSize:   [72, 72],
+    iconAnchor: [36, 72],
   })
 
-  const popup = L.popup({ maxWidth: 220, className: 'result-popup' }).setContent(
-    `<img src="${resultImageUrl}" style="width:200px;border-radius:8px;display:block;" />`
-  )
-  const m = L.marker([lat, lng], { icon: pinIcon }).addTo(map).bindPopup(popup)
-  pinnedMarkers.push(m)
+  const m = L.marker([lat, lng], { icon: pinIcon }).addTo(map)
+  const entry = { marker: m, lat, lng, originalUrl: snapOriginal, resultUrl: snapResult }
+  pinnedMarkers.push(entry)
 
-  pinBtn.classList.add('pinned')
+  const el = m.getElement()
+  el.querySelector('.pin-thumb').addEventListener('click', (e) => {
+    L.DomEvent.stopPropagation(e)
+    baBefore.src = entry.originalUrl
+    baAfter.src  = entry.resultUrl
+    resultCard.classList.remove('has-result', 'hidden', 'expanded')
+    void resultCard.offsetWidth
+    resultCard.classList.add('has-result')
+    requestAnimationFrame(() => moveSlider(50))
+    resultImageUrl    = entry.resultUrl
+    originalImageUrl  = entry.originalUrl
+    currentPinnedEntry = entry
+    downloadBtn.disabled = false
+    shareBtn.disabled    = false
+    pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+    </svg>Delete`
+    pinBtn.disabled = false
+    pinBtn.classList.remove('pinned')
+  })
+
+  currentPinnedEntry = entry
+  pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+  </svg>Delete`
+  pinBtn.classList.remove('pinned')
   setStatus('Result pinned to map!')
   setTimeout(() => setStatus('Done!'), 2000)
 })
