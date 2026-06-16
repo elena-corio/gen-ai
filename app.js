@@ -479,16 +479,24 @@ dlFinalBtn.addEventListener('click', () => {
   if (resultImageUrl) downloadUrl(resultImageUrl, `vitruviews_final_${Date.now()}.png`)
 })
 
-// ── Share (copy URL to clipboard) ────────────────────────────
+// ── Share ─────────────────────────────────────────────────────
 shareBtn.addEventListener('click', async () => {
   if (!resultImageUrl) return
   try {
-    const fullUrl = window.location.origin + resultImageUrl
-    await navigator.clipboard.writeText(fullUrl)
-    setStatus('Link copied to clipboard!')
-    setTimeout(() => setStatus('Done!'), 2000)
-  } catch {
-    setStatus('Could not copy — try downloading instead')
+    const res  = await fetch(resultImageUrl)
+    const blob = await res.blob()
+    const file = new File([blob], `vitruviews_${Date.now()}.png`, { type: 'image/png' })
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ title: 'vitru.views', files: [file] })
+      setStatus('Shared!')
+    } else {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setStatus('Image copied to clipboard!')
+      setTimeout(() => setStatus('Done!'), 2000)
+    }
+  } catch (err) {
+    if (err?.name !== 'AbortError') setStatus('Could not share — try downloading instead')
   }
 })
 
