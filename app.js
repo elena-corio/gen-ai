@@ -3,12 +3,16 @@ import 'leaflet/dist/leaflet.css'
 import { getStreetViewUrl, hasStreetViewCoverage } from './services/streetview.js'
 import { generateImage, ping } from './services/comfyui.js'
 
-import markerIcon   from 'leaflet/dist/images/marker-icon.png'
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
-import markerShadow from 'leaflet/dist/images/marker-shadow.png'
-
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
+const tealMarkerIcon = L.divIcon({
+  className: '',
+  html: `<svg width="24" height="36" viewBox="0 0 24 36" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24C24 5.373 18.627 0 12 0z" fill="#0d9488"/>
+    <circle cx="12" cy="12" r="5" fill="white"/>
+  </svg>`,
+  iconSize:   [24, 36],
+  iconAnchor: [12, 36],
+  popupAnchor:[0, -36],
+})
 
 // ── Map ──────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: false }).setView([41.385, 2.176], 14)
@@ -27,7 +31,8 @@ tileLayers.street.addTo(map)
 const aiBtn       = document.getElementById('ai-btn')
 const sidebar     = document.getElementById('sidebar')
 const searchInput = document.getElementById('search-input')
-const generateBtn = document.getElementById('generate-btn')
+const generateBtn    = document.getElementById('generate-btn')
+const generateLabel  = document.getElementById('generate-label')
 const promptEl    = document.getElementById('prompt')
 const statusEl    = document.getElementById('status')
 const intensityEl = document.getElementById('intensity')
@@ -43,6 +48,7 @@ const uploadClear    = document.getElementById('upload-clear')
 
 const resultCard    = document.getElementById('result-card')
 const resultClose   = document.getElementById('result-close')
+const resultExpand  = document.getElementById('result-expand')
 const baContainer   = document.getElementById('ba-container')
 const baBeforeWrap  = document.getElementById('ba-before-wrap')
 const baBefore      = document.getElementById('ba-before')
@@ -51,9 +57,13 @@ const baHandle      = document.getElementById('ba-handle')
 const baLoading     = document.getElementById('ba-loading')
 const baProgress    = document.getElementById('ba-progress')
 
-const downloadBtn = document.getElementById('download-btn')
-const shareBtn    = document.getElementById('share-btn')
-const pinBtn      = document.getElementById('pin-btn')
+const downloadBtn     = document.getElementById('download-btn')
+const downloadMenu    = document.getElementById('download-menu')
+const dlOriginalBtn   = document.getElementById('dl-original')
+const dlInpaintedBtn  = document.getElementById('dl-inpainted')
+const dlFinalBtn      = document.getElementById('dl-final')
+const shareBtn        = document.getElementById('share-btn')
+const pinBtn          = document.getElementById('pin-btn')
 
 const layersBtn   = document.getElementById('layers-btn')
 const layersPanel = document.getElementById('layers-panel')
@@ -61,12 +71,18 @@ const zoomInBtn   = document.getElementById('zoom-in')
 const zoomOutBtn  = document.getElementById('zoom-out')
 
 // ── State ────────────────────────────────────────────────────
-let currentSvUrl   = null
-let currentFile    = null
-let resultImageUrl = null
-let currentLatLng  = null
-let marker         = null
-const pinnedMarkers = []
+let currentSvUrl      = null
+let currentFile       = null
+let originalImageUrl  = null
+let inpaintedImageUrl = null
+let resultImageUrl    = null
+let currentLatLng     = null
+let marker            = null
+const pinnedMarkers   = []
+let currentPinnedEntry = null
+
+const BASE_SEED = 5
+let hasGenerated = false
 
 // slider state
 let isSliding = false
@@ -115,7 +131,7 @@ map.on('click', ({ latlng: { lat, lng } }) => pickLocation(lat, lng))
 
 async function pickLocation(lat, lng) {
   if (marker) marker.remove()
-  marker = L.marker([lat, lng]).addTo(map)
+  marker = L.marker([lat, lng], { icon: tealMarkerIcon }).addTo(map)
   currentLatLng = { lat, lng }
   svHeading = 0; svPitch = 0; svFov = 90
 
@@ -134,6 +150,8 @@ async function pickLocation(lat, lng) {
     currentSvUrl = getStreetViewUrl(lat, lng, { width: 640, height: 640, heading: svHeading, pitch: svPitch, fov: svFov })
     showPreview(currentSvUrl)
     setStatus('Ready — hit Generate')
+    hasGenerated = false
+    generateLabel.textContent = 'Generate'
     generateBtn.disabled = false
   } catch (err) {
     setStatus(`Error: ${err.message}`)
@@ -181,6 +199,7 @@ function applyFile(file) {
   if (marker) { marker.remove(); marker = null }
 
   const objectUrl = URL.createObjectURL(file)
+  originalImageUrl = objectUrl
   uploadThumb.src      = objectUrl
   uploadFilename.textContent = file.name
   uploadEmpty.classList.add('hidden')
@@ -188,6 +207,8 @@ function applyFile(file) {
 
   showPreview(objectUrl)
   setStatus('Ready — hit Generate')
+  hasGenerated = false
+  generateLabel.textContent = 'Generate'
   generateBtn.disabled = false
 }
 
@@ -237,10 +258,17 @@ document.addEventListener('click', (e) => {
   }
 })
 
-// ── Generate ─────────────────────────────────────────────────
-generateBtn.addEventListener('click', async () => {
+// ── Generate / Regenerate ─────────────────────────────────────
+generateBtn.addEventListener('click', () => {
+  runGeneration(hasGenerated ? Math.floor(Math.random() * 2 ** 32) : BASE_SEED)
+})
+
+async function runGeneration(seed) {
   const source = currentFile ?? currentSvUrl
   if (!source) return
+
+  // Capture the street view URL at generation time so drag/pan/fov changes are included
+  if (currentSvUrl) originalImageUrl = currentSvUrl
 
   const wasFromMap = !!currentSvUrl
   generateBtn.disabled = true
@@ -249,17 +277,22 @@ generateBtn.addEventListener('click', async () => {
   setStatus('Uploading image…')
 
   try {
-    const generated = await generateImage(
+    const { inpainted, final } = await generateImage(
       source,
-      buildPrompt(),
+      seed,
+      buildInpaintingPrompt(),
+      buildImagePrompt(),
       (pct) => {
-        baProgress.textContent = pct < 100 ? `${Math.round(pct)}%` : 'Done!'
-        setStatus(pct < 100 ? `Generating… ${Math.round(pct)}%` : 'Done!')
+        const step  = pct <= 50 ? 'Inpainting' : 'Styling'
+        const label = pct < 100 ? `${step}… ${Math.round(pct)}%` : 'Done!'
+        baProgress.textContent = label
+        setStatus(label)
       },
     )
 
-    resultImageUrl = generated
-    baAfter.src    = generated
+    inpaintedImageUrl = inpainted
+    resultImageUrl    = final
+    baAfter.src       = final
     baLoading.classList.add('hidden')
     resultCard.classList.add('has-result')
 
@@ -269,10 +302,13 @@ generateBtn.addEventListener('click', async () => {
       setTimeout(() => baBeforeWrap.classList.remove('animating'), 650)
     })
 
-    downloadBtn.disabled = false
-    shareBtn.disabled    = false
-    pinBtn.disabled      = !wasFromMap
-    pinBtn.classList.remove('pinned')
+    hasGenerated = true
+    generateLabel.textContent = 'Regenerate'
+    downloadBtn.disabled  = false
+    shareBtn.disabled     = false
+    currentPinnedEntry = null
+    resetPinBtn()
+    pinBtn.disabled       = !wasFromMap
     setStatus('Done!')
   } catch (err) {
     baLoading.classList.add('hidden')
@@ -280,10 +316,37 @@ generateBtn.addEventListener('click', async () => {
   } finally {
     generateBtn.disabled = false
   }
+}
+
+function resetPinBtn() {
+  pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+    <circle cx="12" cy="10" r="3"/>
+  </svg>Pin`
+  pinBtn.classList.remove('pinned')
+}
+
+// ── Result close / expand ─────────────────────────────────────
+resultClose.addEventListener('click', () => {
+  resultCard.classList.add('hidden')
+  if (currentPinnedEntry) {
+    currentPinnedEntry = null
+    resetPinBtn()
+    pinBtn.disabled = true
+  }
 })
 
-// ── Result close ─────────────────────────────────────────────
-resultClose.addEventListener('click', () => resultCard.classList.add('hidden'))
+resultExpand.addEventListener('click', () => {
+  const expanded = resultCard.classList.toggle('expanded')
+  resultExpand.title = expanded ? 'Collapse' : 'Expand'
+  resultExpand.querySelector('svg').innerHTML = expanded
+    ? '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/>'
+    : '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>'
+})
+
+resultCard.addEventListener('transitionend', (e) => {
+  if (e.propertyName === 'width') moveSlider(sliderPct())
+})
 
 // ── Before / After slider ────────────────────────────────────
 function moveSlider(pct) {
@@ -328,8 +391,8 @@ document.addEventListener('mousemove', (e) => {
   if (isDraggingView) {
     const dx = e.clientX - viewDragStartX
     const dy = e.clientY - viewDragStartY
-    svHeading = (viewDragStartH + dx * 0.3 + 360) % 360
-    svPitch   = Math.max(-90, Math.min(90, viewDragStartP - dy * 0.15))
+    svHeading = (viewDragStartH - dx * 0.3 + 360) % 360
+    svPitch   = Math.max(-90, Math.min(90, viewDragStartP + dy * 0.15))
   }
 })
 
@@ -360,8 +423,8 @@ document.addEventListener('touchmove', (e) => {
   if (isDraggingView) {
     const dx = e.touches[0].clientX - viewDragStartX
     const dy = e.touches[0].clientY - viewDragStartY
-    svHeading = (viewDragStartH + dx * 0.3 + 360) % 360
-    svPitch   = Math.max(-90, Math.min(90, viewDragStartP - dy * 0.15))
+    svHeading = (viewDragStartH - dx * 0.3 + 360) % 360
+    svPitch   = Math.max(-90, Math.min(90, viewDragStartP + dy * 0.15))
   }
 }, { passive: true })
 
@@ -382,62 +445,173 @@ baContainer.addEventListener('wheel', (e) => {
   svFovTimer = setTimeout(refreshStreetView, 200)
 }, { passive: false })
 
-// ── Download ─────────────────────────────────────────────────
-downloadBtn.addEventListener('click', () => {
-  if (!resultImageUrl) return
-  const a = document.createElement('a')
-  a.href     = resultImageUrl
-  a.download = `vitruviews_${Date.now()}.png`
-  a.click()
+// ── Download dropdown ─────────────────────────────────────────
+downloadBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  downloadMenu.classList.toggle('hidden')
 })
 
-// ── Share (copy URL to clipboard) ────────────────────────────
+document.addEventListener('click', () => downloadMenu.classList.add('hidden'))
+
+async function downloadUrl(url, filename) {
+  try {
+    const res    = await fetch(url)
+    const blob   = await res.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl; a.download = filename; a.click()
+    URL.revokeObjectURL(blobUrl)
+  } catch {
+    window.open(url, '_blank')
+  }
+}
+
+dlOriginalBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (originalImageUrl) downloadUrl(originalImageUrl, `vitruviews_original_${Date.now()}.jpg`)
+})
+
+dlInpaintedBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (inpaintedImageUrl) downloadUrl(inpaintedImageUrl, `vitruviews_inpainted_${Date.now()}.png`)
+})
+
+dlFinalBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (resultImageUrl) downloadUrl(resultImageUrl, `vitruviews_final_${Date.now()}.png`)
+})
+
+// ── Share ─────────────────────────────────────────────────────
 shareBtn.addEventListener('click', async () => {
   if (!resultImageUrl) return
   try {
-    const fullUrl = window.location.origin + resultImageUrl
-    await navigator.clipboard.writeText(fullUrl)
-    setStatus('Link copied to clipboard!')
-    setTimeout(() => setStatus('Done!'), 2000)
-  } catch {
-    setStatus('Could not copy — try downloading instead')
+    const res  = await fetch(resultImageUrl)
+    const blob = await res.blob()
+    const file = new File([blob], `vitruviews_${Date.now()}.png`, { type: 'image/png' })
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ title: 'vitru.views', files: [file] })
+      setStatus('Shared!')
+    } else {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setStatus('Image copied to clipboard!')
+      setTimeout(() => setStatus('Done!'), 2000)
+    }
+  } catch (err) {
+    if (err?.name !== 'AbortError') setStatus('Could not share — try downloading instead')
   }
 })
 
 // ── Pin result to map ─────────────────────────────────────────
 pinBtn.addEventListener('click', () => {
+  if (currentPinnedEntry) {
+    currentPinnedEntry.marker.remove()
+    const idx = pinnedMarkers.indexOf(currentPinnedEntry)
+    if (idx !== -1) pinnedMarkers.splice(idx, 1)
+    currentPinnedEntry = null
+    resultCard.classList.add('hidden')
+    resetPinBtn()
+    pinBtn.disabled = true
+    setStatus('Pin removed')
+    setTimeout(() => setStatus(''), 2000)
+    return
+  }
+
   if (!resultImageUrl || !currentLatLng) return
 
   const { lat, lng } = currentLatLng
+  const snapOriginal = originalImageUrl
+  const snapResult   = resultImageUrl
+
   const pinIcon = L.divIcon({
     className: '',
-    html: `<div style="width:12px;height:12px;background:#0d9488;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-    iconSize: [12, 12],
-    iconAnchor: [6, 6],
+    html: `<div style="position:relative;width:72px;height:72px;">
+      <div class="pin-thumb" style="
+        position:relative;
+        width:100%;height:100%;
+        border:3px solid white;border-radius:6px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.35);
+        background:url('${snapResult}') center/cover;
+        cursor:pointer;
+        overflow:hidden;
+      ">
+        <div class="pin-expand-icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+            <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </div>
+      </div>
+    </div>`,
+    iconSize:   [72, 72],
+    iconAnchor: [36, 72],
   })
 
-  const popup = L.popup({ maxWidth: 220, className: 'result-popup' }).setContent(
-    `<img src="${resultImageUrl}" style="width:200px;border-radius:8px;display:block;" />`
-  )
-  const m = L.marker([lat, lng], { icon: pinIcon }).addTo(map).bindPopup(popup)
-  pinnedMarkers.push(m)
+  const m = L.marker([lat, lng], { icon: pinIcon }).addTo(map)
+  const entry = { marker: m, lat, lng, originalUrl: snapOriginal, resultUrl: snapResult }
+  pinnedMarkers.push(entry)
 
-  pinBtn.classList.add('pinned')
+  const el = m.getElement()
+  el.querySelector('.pin-thumb').addEventListener('click', (e) => {
+    L.DomEvent.stopPropagation(e)
+    baBefore.src = entry.originalUrl
+    baAfter.src  = entry.resultUrl
+    resultCard.classList.remove('has-result', 'hidden', 'expanded')
+    void resultCard.offsetWidth
+    resultCard.classList.add('has-result')
+    requestAnimationFrame(() => moveSlider(50))
+    resultImageUrl    = entry.resultUrl
+    originalImageUrl  = entry.originalUrl
+    currentPinnedEntry = entry
+    downloadBtn.disabled = false
+    shareBtn.disabled    = false
+    pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+    </svg>Delete`
+    pinBtn.disabled = false
+    pinBtn.classList.remove('pinned')
+  })
+
+  currentPinnedEntry = entry
+  pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+  </svg>Delete`
+  pinBtn.classList.remove('pinned')
   setStatus('Result pinned to map!')
   setTimeout(() => setStatus('Done!'), 2000)
 })
 
-// ── Prompt builder ────────────────────────────────────────────
-function buildPrompt() {
+// ── Sky selector ─────────────────────────────────────────────
+const skyOpts = document.querySelectorAll('.sky-opt')
+skyOpts.forEach(btn => {
+  btn.addEventListener('click', () => {
+    skyOpts.forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+  })
+})
+
+// ── Prompt builders ───────────────────────────────────────────
+const SKY_MAP = {
+  clear:  'clear sky',
+  clouds: 'blue sky, white clouds',
+  warm:   'natural warm light',
+}
+const SUFFIX = 'NO TEXT, NO WATERMARKS, NO CARS, NO DERFORMED HUMAN ANATOMY.'
+
+function buildInpaintingPrompt() {
   const features = []
   if (document.getElementById('tog-pedestrian').checked) features.push('pedestrians, sidewalk')
   if (document.getElementById('tog-bike').checked)       features.push('cyclists, bike lane')
-  if (document.getElementById('tog-tree').checked)       features.push('trees, greenery, vegetation')
+  if (document.getElementById('tog-greenery').checked)   features.push('trees, greenery, vegetation')
+  const middle = [...features, 'urban, modern, community oriented'].join(', ')
+  return `hen_lar_urban, ${middle}, ${SUFFIX}`
+}
 
-  const v = parseInt(intensityEl.value)
-  const intensity = v > 66 ? 'dramatic transformation' : v > 33 ? 'moderate transformation' : 'subtle transformation'
-
-  return [features.join(', '), promptEl.value.trim(), intensity].filter(Boolean).join(', ')
+function buildImagePrompt() {
+  const active = document.querySelector('.sky-opt.active')
+  const sky = active ? (SKY_MAP[active.dataset.sky] ?? '') : ''
+  const core = 'Restyle this to an architectural render, remove wires, do not change image composition, daytime, shadows'
+  return `hen_lar_urban, ${sky}, ${core}, ${SUFFIX}`
 }
 
 // ── Status ───────────────────────────────────────────────────

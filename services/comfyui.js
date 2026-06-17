@@ -1,19 +1,40 @@
-import workflowTemplate from '../FLUX1_image.json'
+import inpaintingTemplate from '../FLUX1_inpainting.json'
+import imageTemplate from '../FLUX2_image.json'
 
 // Proxied through Vite's /comfyui → http://127.0.0.1:8188
 const BASE = '/comfyui'
 
-export async function generateImage(svImageUrl, prompt, onProgress) {
-  const workflow = structuredClone(workflowTemplate)
-
-  workflow['807'].inputs.value = prompt
-  workflow['945'].inputs.value = Math.floor(Math.random() * 2 ** 32)
-
+export async function generateImage(svImageUrl, seed, inpaintingPrompt, imagePrompt, onProgress) {
   const filename = await uploadImage(svImageUrl)
-  workflow['805'].inputs.image = filename
+
+  // Step 1: inpainting — SAM3 segments cars/asphalt and fills with prompt style
+  const inpaintedUrl = await runInpainting(filename, seed, inpaintingPrompt, p => onProgress?.(p * 0.5))
+
+  // Step 2: depth-conditioned stylisation on the inpainted result
+  const final = await runImageWorkflow(inpaintedUrl, seed, imagePrompt, p => onProgress?.(50 + p * 0.5))
+  return { inpainted: inpaintedUrl, final }
+}
+
+async function runInpainting(filename, seed, prompt, onProgress) {
+  const workflow = structuredClone(inpaintingTemplate)
+  workflow['952'].inputs.image = filename
+  workflow['1224'].inputs.value = seed
+  workflow['950:710'].inputs.text = prompt
 
   const promptId = await queuePrompt(workflow)
-  return pollForImage(promptId, onProgress)
+  return pollForImage(promptId, '947', onProgress)
+}
+
+async function runImageWorkflow(inpaintedUrl, seed, prompt, onProgress) {
+  const workflow = structuredClone(imageTemplate)
+  workflow['556'].inputs.value = seed
+  workflow['433:348'].inputs.text = prompt
+
+  const filename = await uploadImage(inpaintedUrl)
+  workflow['434'].inputs.image = filename
+
+  const promptId = await queuePrompt(workflow)
+  return pollForImage(promptId, '432', onProgress)
 }
 
 async function uploadImage(source) {
@@ -57,7 +78,7 @@ async function queuePrompt(workflow) {
   return (await resp.json()).prompt_id
 }
 
-async function pollForImage(promptId, onProgress) {
+async function pollForImage(promptId, saveNodeId, onProgress) {
   for (let i = 0; i < 300; i++) {
     await new Promise(r => setTimeout(r, 1000))
     const resp = await fetch(`${BASE}/history/${promptId}`)
@@ -65,14 +86,11 @@ async function pollForImage(promptId, onProgress) {
 
     const history = await resp.json()
     if (history[promptId]) {
-      const outputs = history[promptId].outputs
-      for (const nodeId in outputs) {
-        const images = outputs[nodeId].images
-        if (images?.length > 0) {
-          const img = images[0]
-          onProgress?.(100)
-          return `${BASE}/view?filename=${encodeURIComponent(img.filename)}&type=${img.type}&subfolder=${img.subfolder || ''}`
-        }
+      const images = history[promptId].outputs?.[saveNodeId]?.images
+      if (images?.length > 0) {
+        const img = images[0]
+        onProgress?.(100)
+        return `${BASE}/view?filename=${encodeURIComponent(img.filename)}&type=${img.type}&subfolder=${img.subfolder || ''}`
       }
     }
     onProgress?.(Math.min(90, (i / 30) * 100))
