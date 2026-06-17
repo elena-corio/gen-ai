@@ -1,7 +1,7 @@
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getStreetViewUrl, hasStreetViewCoverage } from './services/streetview.js'
-import { generateImage, ping } from './services/comfyui.js'
+import { generateImage, ping, INPAINTING_STEPS, IMAGE_STEPS } from './services/comfyui.js'
 
 const tealMarkerIcon = L.divIcon({
   className: '',
@@ -62,6 +62,7 @@ const downloadMenu    = document.getElementById('download-menu')
 const dlOriginalBtn   = document.getElementById('dl-original')
 const dlInpaintedBtn  = document.getElementById('dl-inpainted')
 const dlFinalBtn      = document.getElementById('dl-final')
+const dlSpecsBtn      = document.getElementById('dl-specs')
 const shareBtn        = document.getElementById('share-btn')
 const pinBtn          = document.getElementById('pin-btn')
 
@@ -83,6 +84,7 @@ let currentPinnedEntry = null
 
 const BASE_SEED = 5
 let hasGenerated = false
+let lastGenMeta = null
 
 // slider state
 let isSliding = false
@@ -179,6 +181,7 @@ uploadClear.addEventListener('click', (e) => {
   resetUploadZone()
   resultCard.classList.add('hidden')
   generateBtn.disabled = true
+  disableDownloadMenu()
   setStatus('')
 })
 
@@ -218,12 +221,31 @@ function resetUploadZone() {
   uploadInput.value = ''
 }
 
+// ── Download menu helpers ─────────────────────────────────────
+function enableDownloadMenu(full = false) {
+  downloadBtn.disabled      = false
+  dlInpaintedBtn.disabled   = !full
+  dlFinalBtn.disabled       = !full
+  dlSpecsBtn.disabled       = !full
+}
+
+function disableDownloadMenu() {
+  downloadBtn.disabled      = true
+  dlInpaintedBtn.disabled   = true
+  dlFinalBtn.disabled       = true
+  dlSpecsBtn.disabled       = true
+}
+
 // ── Preview (before-only) ────────────────────────────────────
 function showPreview(src) {
   baBefore.src = src
   baAfter.src  = ''
   resultCard.classList.remove('has-result', 'hidden')
   baLoading.classList.add('hidden')
+  inpaintedImageUrl = null
+  resultImageUrl    = null
+  lastGenMeta       = null
+  enableDownloadMenu(false)
   requestAnimationFrame(() => moveSlider(100))
 }
 
@@ -276,12 +298,15 @@ async function runGeneration(seed) {
   baProgress.textContent = 'Uploading…'
   setStatus('Uploading image…')
 
+  const inpaintingPrompt = buildInpaintingPrompt()
+  const imagePrompt      = buildImagePrompt()
+
   try {
     const { inpainted, final } = await generateImage(
       source,
       seed,
-      buildInpaintingPrompt(),
-      buildImagePrompt(),
+      inpaintingPrompt,
+      imagePrompt,
       (pct) => {
         const step  = pct <= 50 ? 'Inpainting' : 'Styling'
         const label = pct < 100 ? `${step}… ${Math.round(pct)}%` : 'Done!'
@@ -296,6 +321,14 @@ async function runGeneration(seed) {
     baLoading.classList.add('hidden')
     resultCard.classList.add('has-result')
 
+    lastGenMeta = {
+      date:              new Date(),
+      latLng:            currentLatLng ? { ...currentLatLng } : null,
+      seed,
+      inpaintingPrompt,
+      imagePrompt,
+    }
+
     baBeforeWrap.classList.add('animating')
     requestAnimationFrame(() => {
       moveSlider(50)
@@ -304,7 +337,7 @@ async function runGeneration(seed) {
 
     hasGenerated = true
     generateLabel.textContent = 'Regenerate'
-    downloadBtn.disabled  = false
+    enableDownloadMenu(true)
     shareBtn.disabled     = false
     currentPinnedEntry = null
     resetPinBtn()
@@ -468,7 +501,8 @@ async function downloadUrl(url, filename) {
 
 dlOriginalBtn.addEventListener('click', () => {
   downloadMenu.classList.add('hidden')
-  if (originalImageUrl) downloadUrl(originalImageUrl, `vitruviews_original_${Date.now()}.jpg`)
+  const src = originalImageUrl ?? currentSvUrl
+  if (src) downloadUrl(src, `vitruviews_original_${Date.now()}.jpg`)
 })
 
 dlInpaintedBtn.addEventListener('click', () => {
@@ -479,6 +513,38 @@ dlInpaintedBtn.addEventListener('click', () => {
 dlFinalBtn.addEventListener('click', () => {
   downloadMenu.classList.add('hidden')
   if (resultImageUrl) downloadUrl(resultImageUrl, `vitruviews_final_${Date.now()}.png`)
+})
+
+dlSpecsBtn.addEventListener('click', () => {
+  downloadMenu.classList.add('hidden')
+  if (!lastGenMeta) return
+  const { date, latLng, seed, inpaintingPrompt, imagePrompt } = lastGenMeta
+  const fmt = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const lines = [
+    'vitru.views — Generation Specifications',
+    fmt.format(date),
+    '',
+    latLng
+      ? `Location\n  Latitude   ${latLng.lat.toFixed(6)}\n  Longitude  ${latLng.lng.toFixed(6)}`
+      : 'Location\n  Uploaded image',
+    '',
+    'Inpainting · FLUX.1',
+    `  Prompt  ${inpaintingPrompt}`,
+    `  Seed    ${seed}`,
+    `  Steps   ${INPAINTING_STEPS}`,
+    '',
+    'Image · FLUX.2',
+    `  Prompt  ${imagePrompt}`,
+    `  Seed    ${seed}`,
+    `  Steps   ${IMAGE_STEPS}`,
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url
+  a.download = `vitruviews_specs_${Date.now()}.txt`
+  a.click()
+  URL.revokeObjectURL(url)
 })
 
 // ── Share ─────────────────────────────────────────────────────
@@ -563,7 +629,7 @@ pinBtn.addEventListener('click', () => {
     resultImageUrl    = entry.resultUrl
     originalImageUrl  = entry.originalUrl
     currentPinnedEntry = entry
-    downloadBtn.disabled = false
+    enableDownloadMenu(true)
     shareBtn.disabled    = false
     pinBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
