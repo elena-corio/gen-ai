@@ -579,6 +579,22 @@ pinBtn.addEventListener('click', () => {
   setTimeout(() => setStatus('Done!'), 2000)
 })
 
+// ── Sky selector ─────────────────────────────────────────────
+const skyOpts = document.querySelectorAll('.sky-opt')
+skyOpts.forEach(btn => {
+  btn.addEventListener('click', () => {
+    skyOpts.forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+  })
+})
+
+function getSkySetting() {
+  const active = document.querySelector('.sky-opt.active')
+  if (!active) return ''
+  const map = { clear: 'clear sky, sunny', clouds: 'overcast sky, cloudy', warm: 'golden hour, warm sunlight' }
+  return map[active.dataset.sky] ?? ''
+}
+
 // ── Prompt builder ────────────────────────────────────────────
 function buildPrompt() {
   const features = []
@@ -588,8 +604,9 @@ function buildPrompt() {
 
   const v = parseInt(intensityEl.value)
   const intensity = v > 66 ? 'dramatic transformation' : v > 33 ? 'moderate transformation' : 'subtle transformation'
+  const sky = getSkySetting()
 
-  return ['hen_lar_urban', features.join(', '), promptEl.value.trim(), intensity].filter(Boolean).join(', ')
+  return ['hen_lar_urban', features.join(', '), sky, promptEl.value.trim(), intensity].filter(Boolean).join(', ')
 }
 
 // ── Status ───────────────────────────────────────────────────

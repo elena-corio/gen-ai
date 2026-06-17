@@ -68,32 +68,50 @@
         <p class="section-label">Features</p>
         <div class="toggle-list">
           <label class="toggle-row">
-            <span>Pedestrian</span>
+            <span>Pedestrian Area</span>
             <div class="toggle-switch">
               <input type="checkbox" id="tog-pedestrian" checked />
               <span class="toggle-track"></span>
             </div>
           </label>
           <label class="toggle-row">
-            <span>Bike</span>
+            <span>Bike Lane</span>
             <div class="toggle-switch">
               <input type="checkbox" id="tog-bike" checked />
               <span class="toggle-track"></span>
             </div>
           </label>
           <label class="toggle-row">
-            <span>Trees</span>
+            <span>Greenery</span>
             <div class="toggle-switch">
-              <input type="checkbox" id="tog-tree" checked />
+              <input type="checkbox" id="tog-greenery" checked />
               <span class="toggle-track"></span>
             </div>
           </label>
         </div>
       </div>
 
+      <!-- Scene -->
+      <div class="section">
+        <p class="section-label">Scene</p>
+        <div class="sky-selector">
+          <button class="sky-opt active" data-sky="clear">Clear Sky</button>
+          <button class="sky-opt" data-sky="clouds">Clouds</button>
+          <button class="sky-opt" data-sky="warm">Warm Light</button>
+        </div>
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span>Populate</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="tog-populate" checked />
+              <span class="toggle-track"></span>
+            </div>
+          </label>
+        </div>
+      </div>
       <!-- Intensity -->
       <div class="section">
-        <p class="section-label">Change Intensity</p>
+        <p class="section-label">Intensity</p>
         <input type="range" id="intensity" min="0" max="100" value="75" />
         <div class="range-labels"><span>Subtle</span><span>Strong</span></div>
       </div>
