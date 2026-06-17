@@ -280,6 +280,8 @@ async function runGeneration(seed) {
     const { inpainted, final } = await generateImage(
       source,
       seed,
+      buildInpaintingPrompt(),
+      buildImagePrompt(),
       (pct) => {
         const step  = pct <= 50 ? 'Inpainting' : 'Styling'
         const label = pct < 100 ? `${step}… ${Math.round(pct)}%` : 'Done!'
@@ -588,25 +590,28 @@ skyOpts.forEach(btn => {
   })
 })
 
-function getSkySetting() {
-  const active = document.querySelector('.sky-opt.active')
-  if (!active) return ''
-  const map = { clear: 'clear sky, sunny', clouds: 'overcast sky, cloudy', warm: 'golden hour, warm sunlight' }
-  return map[active.dataset.sky] ?? ''
+// ── Prompt builders ───────────────────────────────────────────
+const SKY_MAP = {
+  clear:  'clear sky',
+  clouds: 'blue sky, white clouds',
+  warm:   'natural warm light',
 }
+const SUFFIX = 'NO TEXT, NO WATERMARKS, NO CARS, NO DERFORMED HUMAN ANATOMY.'
 
-// ── Prompt builder ────────────────────────────────────────────
-function buildPrompt() {
+function buildInpaintingPrompt() {
   const features = []
   if (document.getElementById('tog-pedestrian').checked) features.push('pedestrians, sidewalk')
   if (document.getElementById('tog-bike').checked)       features.push('cyclists, bike lane')
-  if (document.getElementById('tog-tree').checked)       features.push('trees, greenery, vegetation')
+  if (document.getElementById('tog-greenery').checked)   features.push('trees, greenery, vegetation')
+  const middle = [...features, 'urban, modern, community oriented'].join(', ')
+  return `hen_lar_urban, ${middle}, ${SUFFIX}`
+}
 
-  const v = parseInt(intensityEl.value)
-  const intensity = v > 66 ? 'dramatic transformation' : v > 33 ? 'moderate transformation' : 'subtle transformation'
-  const sky = getSkySetting()
-
-  return ['hen_lar_urban', features.join(', '), sky, promptEl.value.trim(), intensity].filter(Boolean).join(', ')
+function buildImagePrompt() {
+  const active = document.querySelector('.sky-opt.active')
+  const sky = active ? (SKY_MAP[active.dataset.sky] ?? '') : ''
+  const core = 'Restyle this to an architectural render, remove wires, do not change image composition, daytime, shadows'
+  return `hen_lar_urban, ${sky}, ${core}, ${SUFFIX}`
 }
 
 // ── Status ───────────────────────────────────────────────────

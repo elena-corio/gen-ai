@@ -4,29 +4,31 @@ import imageTemplate from '../FLUX2_image.json'
 // Proxied through Vite's /comfyui → http://127.0.0.1:8188
 const BASE = '/comfyui'
 
-export async function generateImage(svImageUrl, seed, onProgress) {
+export async function generateImage(svImageUrl, seed, inpaintingPrompt, imagePrompt, onProgress) {
   const filename = await uploadImage(svImageUrl)
 
   // Step 1: inpainting — SAM3 segments cars/asphalt and fills with prompt style
-  const inpaintedUrl = await runInpainting(filename, seed, p => onProgress?.(p * 0.5))
+  const inpaintedUrl = await runInpainting(filename, seed, inpaintingPrompt, p => onProgress?.(p * 0.5))
 
   // Step 2: depth-conditioned stylisation on the inpainted result
-  const final = await runImageWorkflow(inpaintedUrl, seed, p => onProgress?.(50 + p * 0.5))
+  const final = await runImageWorkflow(inpaintedUrl, seed, imagePrompt, p => onProgress?.(50 + p * 0.5))
   return { inpainted: inpaintedUrl, final }
 }
 
-async function runInpainting(filename, seed, onProgress) {
+async function runInpainting(filename, seed, prompt, onProgress) {
   const workflow = structuredClone(inpaintingTemplate)
   workflow['952'].inputs.image = filename
   workflow['1224'].inputs.value = seed
+  workflow['950:710'].inputs.text = prompt
 
   const promptId = await queuePrompt(workflow)
   return pollForImage(promptId, '947', onProgress)
 }
 
-async function runImageWorkflow(inpaintedUrl, seed, onProgress) {
+async function runImageWorkflow(inpaintedUrl, seed, prompt, onProgress) {
   const workflow = structuredClone(imageTemplate)
   workflow['556'].inputs.value = seed
+  workflow['433:348'].inputs.text = prompt
 
   const filename = await uploadImage(inpaintedUrl)
   workflow['434'].inputs.image = filename
