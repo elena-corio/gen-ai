@@ -804,7 +804,8 @@ body {
   transition: background 0.12s, color 0.12s;
 }
 .dl-item + .dl-item { border-top: var(--border); }
-.dl-item:hover { background: var(--grey-100); color: var(--charcoal); }
+.dl-item:hover:not(:disabled) { background: var(--grey-100); color: var(--charcoal); }
+.dl-item:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── Leaflet overrides ──────────────────────────────────────── */
 .leaflet-control-zoom { display: none; }

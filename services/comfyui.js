@@ -1,6 +1,9 @@
 import inpaintingTemplate from '../FLUX1_inpainting.json'
 import imageTemplate from '../FLUX2_image.json'
 
+export const INPAINTING_STEPS = inpaintingTemplate['950:714'].inputs.value
+export const IMAGE_STEPS       = imageTemplate['433:354'].inputs.value
+
 // Proxied through Vite's /comfyui → http://127.0.0.1:8188
 const BASE = '/comfyui'
 
